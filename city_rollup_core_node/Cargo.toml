@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name    = "city_rollup_core_node"
+name = "city_rollup_core_node"
 version = "0.1.0"
 
 
@@ -16,28 +16,29 @@ bitcoin = { workspace = true }
 reqwest = { workspace = true }
 url = { workspace = true }
 k256 = { workspace = true }
-city_crypto           = { path = "../city_crypto" }
-city_common_circuit   = { path = "../city_common_circuit" }
-city_common           = { path = "../city_common" }
-city_macros           = { path = "../city_macros" }
-city_rollup_common    = { path = "../city_rollup_common" }
-city_rollup_worker_dispatch    = { path = "../city_rollup_worker_dispatch" }
-tokio                 = { workspace = true }
+city_crypto = { path = "../city_crypto" }
+city_common_circuit = { path = "../city_common_circuit" }
+city_common = { path = "../city_common" }
+city_macros = { path = "../city_macros" }
+city_rollup_common = { path = "../city_rollup_common" }
+city_rollup_worker_dispatch = { path = "../city_rollup_worker_dispatch" }
+tokio = { workspace = true }
 city_store = { path = "../city_store" }
 bytes = { workspace = true }
 city_redis_store = { path = "../city_redis_store" }
 async-trait = { workspace = true }
 
-http  = { workspace = true }
-http-body-util  = { workspace = true }
-hyper  = { workspace = true }
-hyper-util  = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 jsonrpsee = { workspace = true }
 tracing = { workspace = true }
 rayon = { workspace = true }
 
 tower = { workspace = true }
 tower-http = { workspace = true }
+chrono = "0.4"
 
 [dev-dependencies]
 criterion = "0.5.1"

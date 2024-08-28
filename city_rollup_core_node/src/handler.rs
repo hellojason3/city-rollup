@@ -5,7 +5,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use city_common::cli::args::RPCServerArgs;
 use city_common_circuit::circuits::zk_signature::{
-    verify_secp256k1_signature_proof,verify_standard_wrapped_zk_signature_proof
+    verify_secp256k1_signature_proof, verify_standard_wrapped_zk_signature_proof,
 };
 use city_redis_store::RedisStore;
 use city_rollup_common::{
@@ -24,8 +24,7 @@ use city_rollup_worker_dispatch::implementations::redis::QueueCmd;
 use city_rollup_worker_dispatch::implementations::redis::RedisQueue;
 use city_rollup_worker_dispatch::{
     implementations::redis::{
-        Q_CMD, Q_RPC_ADD_WITHDRAWAL, Q_RPC_CLAIM_DEPOSIT,
-        Q_RPC_REGISTER_USER, Q_RPC_TOKEN_TRANSFER,
+        Q_CMD, Q_RPC_ADD_WITHDRAWAL, Q_RPC_CLAIM_DEPOSIT, Q_RPC_REGISTER_USER, Q_RPC_TOKEN_TRANSFER,
     },
     traits::{proving_dispatcher::ProvingDispatcher, proving_worker::ProvingWorkerListener},
 };
@@ -48,9 +47,10 @@ use plonky2::hash::hash_types::RichField;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
+use tokio::sync::{mpsc, oneshot};
 use tokio::{net::TcpListener, task::spawn_blocking};
 
-
+use crate::ddos_preventer::{DDoSPreventer, DDOS_THRESHOLD};
 use crate::rpc::ErrorCode;
 use crate::rpc::ExternalRequestParams;
 use crate::rpc::RequestParams;
@@ -172,14 +172,14 @@ impl<F: RichField> CityRollupRPCServerHandler<F> {
     }
     pub async fn preflight(&self, req: Request<Incoming>) -> anyhow::Result<Response<BoxBody>> {
         let _whole_body = req.collect().await?;
-		let response = Response::builder()
-			.status(StatusCode::OK)
-			.header("Access-Control-Allow-Origin", "*")
-			.header("Access-Control-Allow-Headers", "*")
-			.header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-			.body(BoxBody::default())?;
-		Ok(response)
-	}
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Headers", "*")
+            .header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+            .body(BoxBody::default())?;
+        Ok(response)
+    }
     fn register_user(&mut self, req: CityRegisterUserRPCRequest<F>) -> Result<(), anyhow::Error> {
         self.notify_rpc_register_user(&req)?;
         Ok(())
@@ -338,7 +338,6 @@ impl<F: RichField> CityRollupRPCServerHandler<F> {
         _user_id: u64,
         signature_proof: Vec<u8>,
     ) -> anyhow::Result<()> {
-
         spawn_blocking(move || {
             verify_secp256k1_signature_proof::<C, { city_store::config::D }>(
                 Default::default(),
@@ -354,7 +353,6 @@ impl<F: RichField> CityRollupRPCServerHandler<F> {
         _user_id: u64,
         signature_proof: Vec<u8>,
     ) -> anyhow::Result<()> {
-
         spawn_blocking(move || {
             verify_standard_wrapped_zk_signature_proof::<C, { city_store::config::D }>(
                 Default::default(),
@@ -415,11 +413,44 @@ pub async fn run<F: RichField>(args: RPCServerArgs) -> anyhow::Result<()> {
     tracing::info!("Listening on http://{}", addr);
     let store = RedisStore::new(&args.redis_uri)?;
     let handler = CityRollupRPCServerHandler::<F>::new(args, store).await?;
+    let (tx, mut rx) = mpsc::channel::<(SocketAddr, oneshot::Sender<bool>)>(DDOS_THRESHOLD);
+
+    // start the receiver thread
+    tokio::spawn(async move {
+        // create a DDoS preventer in the receiver thread so that it can keep track of the addresses
+        let mut ddos_preventer = DDoSPreventer::new();
+
+        while let Some((addr, responder)) = rx.recv().await {
+            let allow = ddos_preventer.should_allow(addr);
+            // send back the result
+            let _ = responder.send(allow);
+        }
+    });
 
     loop {
-        let (stream, _) = listener.accept().await?;
+        let (stream, addr) = listener.accept().await?;
         let io = TokioIo::new(stream);
         let handler = handler.clone();
+
+        // create a channel to communicate with the receiver thread
+        let (resp_tx, resp_rx) = oneshot::channel();
+
+        // send the addr to the receiver thread
+        if let Err(e) = tx.send((addr, resp_tx)).await {
+            tracing::error!("Failed to send address to DDoS prevention thread: {:?}", e);
+            return Err(anyhow::anyhow!("Failed to send address"));
+        }
+
+        // receive the result from the receiver thread
+        if let Ok(allow) = resp_rx.await {
+            if !allow {
+                tracing::warn!("Connection from {} blocked due to DDoS protection", addr);
+                continue;
+            }
+        } else {
+            tracing::error!("Failed to receive response from DDoS prevention thread");
+            return Err(anyhow::anyhow!("Failed to receive response"));
+        }
 
         tokio::task::spawn(async move {
             // TODO: should remove the extra clone
