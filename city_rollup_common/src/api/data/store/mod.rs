@@ -154,9 +154,7 @@ impl CityL1DepositJSON {
             public_key: U8BytesFixed(deposit.public_key.0),
         }
     }
-
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, Copy, Hash, Eq, PartialEq)]
 pub struct CityL1Deposit {
@@ -167,7 +165,6 @@ pub struct CityL1Deposit {
     pub public_key: CompressedPublicKey,
 }
 impl CityL1Deposit {
-
     pub fn to_json_variant(&self) -> CityL1DepositJSON {
         CityL1DepositJSON::from_city_l1_deposit(&self)
     }

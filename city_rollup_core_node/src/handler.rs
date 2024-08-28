@@ -7,7 +7,7 @@ use city_common::cli::args::RPCServerArgs;
 use city_common_circuit::circuits::zk_signature::{
     verify_secp256k1_signature_proof, verify_standard_wrapped_zk_signature_proof,
 };
-use city_redis_store::RedisStore;
+use city_redis_store::{RedisStore, USER_KEYS};
 use city_rollup_common::{
     actors::traits::OrchestratorRPCEventSenderSync,
     api::data::block::{
@@ -181,6 +181,17 @@ impl<F: RichField> CityRollupRPCServerHandler<F> {
         Ok(response)
     }
     fn register_user(&mut self, req: CityRegisterUserRPCRequest<F>) -> Result<(), anyhow::Error> {
+        let user_pub_key = req.public_key.to_string();
+        let mut connection = self.store.get_connection()?;
+        // use HEXISTS command to check if the field exists in the hash table
+        let exists: bool = redis::cmd("HEXISTS")
+            .arg(USER_KEYS)
+            .arg(user_pub_key.as_str())
+            .query(&mut connection)?;
+        if exists {
+            // if the public key already exists in the hash table, return an error
+            return Err(anyhow::anyhow!("Public key already registered"));
+        }
         self.notify_rpc_register_user(&req)?;
         Ok(())
     }

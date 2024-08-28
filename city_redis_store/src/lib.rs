@@ -1,17 +1,18 @@
-use std::sync::{Arc, RwLock};
 use city_rollup_common::api::data::store::CityUserState;
 use city_rollup_common::qworker::job_id::QProvingJobDataID;
 use city_rollup_common::qworker::proof_store::QProofStoreReaderSync;
 use city_rollup_common::qworker::proof_store::QProofStoreWriterSync;
-use plonky2::plonk::config::GenericConfig;
 use lazy_static::lazy_static;
+use log::info;
+use plonky2::plonk::config::GenericConfig;
 use plonky2::plonk::proof::ProofWithPublicInputs;
 use r2d2_redis::RedisConnectionManager;
 use redis::Commands;
-use log::info;
+use std::sync::{Arc, RwLock};
 
 // Table
 pub const USER_STATE: &'static str = "user_state";
+pub const USER_KEYS: &'static str = "user_keys";
 
 pub const PROOFS: &'static str = "proofs";
 pub const PROOF_COUNTERS: &'static str = "proof_counters";
@@ -53,9 +54,11 @@ impl RedisStore {
             user_state.user_id,
             bincode::serialize(user_state)?,
         )?;
+        let serializable_key = user_state.public_key.to_string();
+        //add user's public key to the USER_KEYS table
+        connection.hset(USER_KEYS, serializable_key, user_state.user_id)?;
         Ok(())
     }
-
 }
 
 impl QProofStoreReaderSync for RedisStore {
@@ -101,7 +104,7 @@ impl QProofStoreWriterSync for RedisStore {
         conn.hset_nx(PROOFS, <[u8; 24]>::from(&id).to_vec(), data)?;
         Ok(())
     }
-    
+
     fn write_next_jobs(
         &mut self,
         jobs: &[QProvingJobDataID],
@@ -109,7 +112,7 @@ impl QProofStoreWriterSync for RedisStore {
     ) -> anyhow::Result<()> {
         self.write_next_jobs_core(jobs, next_jobs)
     }
-    
+
     fn write_multidimensional_jobs(
         &mut self,
         jobs_levels: &[Vec<QProvingJobDataID>],
@@ -120,7 +123,8 @@ impl QProofStoreWriterSync for RedisStore {
 }
 pub fn initialize_redis_cache(redis_uri: &str) -> anyhow::Result<()> {
     let store = RedisStore::new(redis_uri)?;
-    let mut redis_cache = REDIS_CACHE.write()
+    let mut redis_cache = REDIS_CACHE
+        .write()
         .expect("Failed to acquire write lock on REDIS_CACHE");
     *redis_cache = Some(store);
     Ok(())

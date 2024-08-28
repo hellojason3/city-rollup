@@ -5,6 +5,7 @@ version = "0.1.0"
 
 
 [dependencies]
+redis = { workspace = true }
 plonky2 = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
